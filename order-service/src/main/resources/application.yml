@@ -1,0 +1,30 @@
+server:
+  port: 8081
+  error:
+    include-message: always   # show our error text (e.g. "Not enough stock")
+
+spring:
+  application:
+    name: order-service   # name in Eureka. Feign uses this name.
+
+  # ---------- Database ----------
+  # PostgreSQL (now)
+  datasource:
+    url: jdbc:postgresql://localhost:5432/order_db
+    username: your_username
+    password: your_password
+
+  # Oracle (later) - only change these 3 lines, nothing in the code:
+  #  datasource:
+  #    url: jdbc:oracle:thin:@//localhost:1521/FREEPDB1
+  #    username: order_db      # in Oracle, one user = one schema
+  #    password: your_password
+
+  jpa:
+    hibernate:
+      ddl-auto: create   # POC: tables are re-created on every start
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
