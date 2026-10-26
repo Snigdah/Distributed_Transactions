@@ -1,4 +1,7 @@
-# Seata POC - AT mode (Apache Seata 2.6.0)
+# Seata POC - XA mode (Apache Seata 2.6.0)
+
+> Branch `feature/XA`. The AT version of this POC is on branch `feature/AT`.
+> Only difference in code: `seata.data-source-proxy-mode: XA` in the 3 services' `application.yml`.
 
 Customer **C-001** has **5000 Tk**.
 
@@ -18,9 +21,22 @@ Customer **C-001** has **5000 Tk**.
 Stack: Spring Boot 3.5.6, Spring Cloud 2025.0.0, Java 21, Apache Seata 2.6.0 (client + server), Lombok, PostgreSQL (Oracle ready).
 
 ## Flow (one global transaction)
-`POST /api/orders` → save order (order_db) → reduce stock (inventory_db) → take money (payment_db) → CONFIRMED
+`POST /api/orders` → reduce stock (inventory_db) → take money (payment_db) → save order CONFIRMED (order_db)
 
-If any step fails, Seata puts back the old values in all 3 databases using `undo_log`.
+## How XA mode works
+1. **Phase 1, prepare:** each service runs its SQL inside an XA branch, then the database runs `XA PREPARE`.
+   The change is saved but **not committed**, and the row stays **locked by the database**.
+2. **Phase 2, decide:** the Seata server tells every branch the result.
+   - All prepared OK: `XA COMMIT` everywhere, and the new values become visible.
+   - Any failure: `XA ROLLBACK` everywhere, and the prepared changes are thrown away.
+
+| | AT (`feature/AT`) | XA (this branch) |
+|---|---|---|
+| Change in phase 1 | committed at once, old value saved in `undo_log` | prepared, **not committed** |
+| Others read P-200 during the transaction | see **9** (in-between value) | see **10** (last committed value) |
+| Rollback done by | Seata, from `undo_log` | the database (`XA ROLLBACK`) |
+| `undo_log` table | needed | **not needed** |
+| Row locks | short | held until phase 2 (slower under load) |
 
 The global transaction id (XID) travels with every Feign call in the HTTP header `TX_XID`:
 `FeignXidConfig` (order-service) adds it, `SeataXidConfig` (inventory, payment) reads it.
@@ -53,7 +69,7 @@ Healthy log shows: `use lock store mode: db`, `use session store mode: db`, `Ser
 
 | Table | Where | Purpose |
 |---|---|---|
-| `undo_log` | every business DB that joins a global transaction | lets Seata undo local changes |
+| `undo_log` | business DBs, **AT mode only** (scripts are on `feature/AT`); XA does not use it | lets Seata undo local changes in AT mode |
 | `global_table` | `seata_db` | global transaction status |
 | `branch_table` | `seata_db` | each service's part of a global transaction |
 | `lock_table` | `seata_db` | global row locks |
@@ -68,20 +84,12 @@ Healthy log shows: `use lock store mode: db`, `use session store mode: db`, `Ser
 | `relation "distributed_lock" does not exist` | Run `db/seata-server-postgresql.sql` in `seata_db`, then `docker restart seata-server-poc` |
 | `Bind for 0.0.0.0:xxxx failed: port is already allocated` | Port used by another app on the server. Pick another host port and update `application.yml` |
 
-## Database scripts (all official Apache Seata v2.6.0, source link inside each file)
-
-| File | Run in | When |
-|---|---|---|
-| `db/postgres-setup.sql` | PostgreSQL (as admin) | once: creates `order_db`, `inventory_db`, `payment_db`, `seata_db` |
-| `db/postgres-undo-log.sql` | `order_db`, `inventory_db`, `payment_db` (each) | once |
-| `db/seata-server-postgresql.sql` | `seata_db` only | once |
-| `db/oracle-setup.sql`, `db/oracle-undo-log.sql`, `db/seata-server-oracle.sql` | same, for Oracle | later |
-
-Business tables (`orders`, `product_stock`, `wallet`) are created automatically and starting data
-is loaded from `data.sql` on every service start.
+## Database setup
+All database steps (create databases, Seata tables, **turn on XA**), with where to run each command
+(pgAdmin, PowerShell, server terminal, Oracle): see **[db/README.md](db/README.md)**.
 
 ## Setup (once)
-1. Run the database scripts above
+1. Follow [db/README.md](db/README.md) (databases, Seata tables, turn on XA)
 2. Set `username` / `password` in each service's `application.yml`
 3. Start the Seata server (see above)
 4. In IntelliJ: JDK 21, enable annotation processing (Lombok), reload Maven
@@ -108,18 +116,29 @@ Result: order `CONFIRMED`, amount 1000. P-100 stock **9**, wallet **4000**.
 curl -X POST http://localhost:8081/api/orders -H "Content-Type: application/json" -d "{\"customerId\":\"C-001\",\"productId\":\"P-200\",\"quantity\":1}"
 ```
 Result: `{"status":"ROLLED_BACK","reason":"Not enough balance to pay 10000.00"}`
-- inventory log shows stock of P-200 went to **9** (committed locally)
-- then Seata rolled it back: P-200 stock is **10** again
-- wallet still **4000**, no new order in the list
+- inventory log shows stock of P-200 is **9**, but only inside its own prepared XA branch (not committed)
+- payment fails, Seata sends `XA ROLLBACK`: the prepared change is thrown away
+- P-200 stock is **10**, wallet still **4000**, no new order in the list
 
-That is AT mode: each service commits on its own, and Seata undoes it when the global transaction fails.
+### See the difference from AT (optional)
+Put a breakpoint in **payment-service** `PaymentService.charge()` (inventory has already prepared),
+send the P-200 request, and while it is paused run in pgAdmin:
+```sql
+-- inventory_db
+SELECT quantity FROM product_stock WHERE product_id = 'P-200';  -- 10 (AT would show 9)
+SELECT gid, prepared FROM pg_prepared_xacts;                     -- 1 row: inventory's prepared branch
+```
+Resume: the prepared row disappears and the stock is still 10.
+Don't pause longer than 60 seconds (the default global transaction timeout).
 
-## Adding a new business microservice to AT mode
+That is XA mode: nothing is committed until every service is ready, so nobody sees a half-done value.
+
+## Adding a new business microservice to XA mode
 1. Add dependency `org.apache.seata:seata-spring-boot-starter:2.6.0`
 2. Copy the `seata:` block into its `application.yml` (same `tx-service-group`, change `application-id`)
-3. Run the `undo_log` script in its database
+3. Make sure its database has XA turned on (PostgreSQL `max_prepared_transactions` > 0, Oracle grants). No `undo_log`
 4. Copy `SeataXidConfig` (to join) and `FeignXidConfig` (if it calls other services)
 5. Use normal `@Transactional`; throw an exception on failure so Seata rolls back
 
-Rules: every table needs a primary key; only database changes can be undone (not emails or external APIs);
-keep global transactions short.
+Rules: only database changes can be undone (not emails or external APIs); keep XA transactions short, because
+rows stay locked until phase 2; do not mix AT and XA services in one global transaction.

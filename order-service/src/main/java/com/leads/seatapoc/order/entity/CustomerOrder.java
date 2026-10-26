@@ -31,5 +31,5 @@ public class CustomerOrder {
 
     private BigDecimal amount;
 
-    private String status;   // PENDING -> CONFIRMED
+    private String status;   // CONFIRMED
 }

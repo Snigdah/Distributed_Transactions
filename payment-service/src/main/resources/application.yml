@@ -33,7 +33,7 @@ eureka:
     service-url:
       defaultZone: http://localhost:8761/eureka/
 
-# ---------- Seata (AT mode) ----------
+# ---------- Seata (XA mode) ----------
 seata:
   application-id: payment-service
   tx-service-group: poc-tx-group        # our transaction group name
@@ -46,4 +46,4 @@ seata:
     type: file                           # no Nacos: use the address above
   config:
     type: file
-  data-source-proxy-mode: AT             # Seata wraps the DataSource and writes undo_log
+  data-source-proxy-mode: XA             # DB prepares first, commits only when all are ready (no undo_log)
