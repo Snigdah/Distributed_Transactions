@@ -11,8 +11,8 @@ spring:
   # PostgreSQL (now)
   datasource:
     url: jdbc:postgresql://localhost:5432/inventory_db
-    username: your_username
-    password: your_password
+    username: postgres
+    password: 12345
 
   # Oracle (later) - only change these 3 lines, nothing in the code:
   #  datasource:
@@ -32,3 +32,18 @@ eureka:
   client:
     service-url:
       defaultZone: http://localhost:8761/eureka/
+
+# ---------- Seata (AT mode) ----------
+seata:
+  application-id: inventory-service
+  tx-service-group: poc-tx-group        # our transaction group name
+  service:
+    vgroup-mapping:
+      poc-tx-group: default              # group -> Seata cluster "default"
+    grouplist:
+      default: 192.168.10.56:18091       # Seata server address
+  registry:
+    type: file                           # no Nacos: use the address above
+  config:
+    type: file
+  data-source-proxy-mode: AT             # Seata wraps the DataSource and writes undo_log

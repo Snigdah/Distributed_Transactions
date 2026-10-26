@@ -5,15 +5,17 @@ import com.leads.seatapoc.order.client.PaymentClient;
 import com.leads.seatapoc.order.dto.ChargeRequest;
 import com.leads.seatapoc.order.dto.DeductStockRequest;
 import com.leads.seatapoc.order.dto.OrderRequest;
+import com.leads.seatapoc.order.dto.ProductResponse;
 import com.leads.seatapoc.order.entity.CustomerOrder;
 import com.leads.seatapoc.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
+import org.apache.seata.core.context.RootContext;
+import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Optional;
+import java.math.BigDecimal;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -24,50 +26,36 @@ public class OrderService {
     private final InventoryClient inventoryClient;
     private final PaymentClient paymentClient;
 
-    // Flow: save order -> take stock -> take money -> CONFIRMED
-    // No Seata yet: if payment fails, the stock is NOT given back.
-    public CustomerOrder placeOrder(String idempotencyKey, OrderRequest request) {
+    // One global transaction over 3 databases.
+    // If any step throws, Seata undoes the order, the stock and the payment.
+    @GlobalTransactional(name = "place-order", rollbackFor = Exception.class)
+    public CustomerOrder placeOrder(OrderRequest request) {
+        log.info("Global transaction started, XID {}", RootContext.getXID());
 
-        // 1. Same key already used? Return the old order (no double charge)
-        Optional<CustomerOrder> oldOrder = orderRepository.findByIdempotencyKey(idempotencyKey);
-        if (oldOrder.isPresent()) {
-            log.info("Key {} already used, returning order {}", idempotencyKey, oldOrder.get().getId());
-            return oldOrder.get();
-        }
-
-        // 2. Save new order as PENDING
+        // 1. Save order (order_db)
         CustomerOrder order = new CustomerOrder();
-        order.setIdempotencyKey(idempotencyKey);
         order.setCustomerId(request.customerId());
         order.setProductId(request.productId());
         order.setQuantity(request.quantity());
-        order.setAmount(request.amount());
         order.setStatus("PENDING");
         order = orderRepository.save(order);
 
-        try {
-            // 3. Take stock (inventory-service)
-            inventoryClient.deductStock(new DeductStockRequest(order.getId(), request.productId(), request.quantity()));
+        // 2. Reduce stock (inventory_db) and get the price
+        ProductResponse product = inventoryClient.deduct(
+                new DeductStockRequest(request.productId(), request.quantity()));
+        BigDecimal amount = product.price().multiply(BigDecimal.valueOf(request.quantity()));
 
-            // 4. Take money (payment-service)
-            paymentClient.charge(new ChargeRequest(order.getId(), request.customerId(), request.amount()));
+        // 3. Take money (payment_db). Fails if the wallet is too small.
+        paymentClient.charge(new ChargeRequest(request.customerId(), amount));
 
-            // 5. Both done
-            order.setStatus("CONFIRMED");
-            log.info("Order {} CONFIRMED", order.getId());
-
-        } catch (Exception e) {
-            // Something failed -> cancel
-            order.setStatus("CANCELLED");
-            order.setFailureReason(e.getMessage());
-            log.warn("Order {} CANCELLED: {}", order.getId(), e.getMessage());
-        }
-
+        // 4. All good
+        order.setAmount(amount);
+        order.setStatus("CONFIRMED");
+        log.info("Order {} CONFIRMED, XID {} will commit", order.getId(), RootContext.getXID());
         return orderRepository.save(order);
     }
 
-    public CustomerOrder getOrder(Long id) {
-        return orderRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+    public List<CustomerOrder> getAllOrders() {
+        return orderRepository.findAll();
     }
 }

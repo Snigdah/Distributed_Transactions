@@ -5,7 +5,7 @@ import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
-// Finds "payment-service" in Eureka. No hardcoded URL.
+// "payment-service" is found through Eureka, no hardcoded URL
 @FeignClient(name = "payment-service")
 public interface PaymentClient {
 

@@ -1,18 +1,18 @@
 package com.leads.seatapoc.payment.repository;
 
 import com.leads.seatapoc.payment.entity.Wallet;
-import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.Optional;
+import java.math.BigDecimal;
 
 public interface WalletRepository extends JpaRepository<Wallet, String> {
 
-    // SELECT ... FOR UPDATE -> locks the row so two payments can't change it at the same time
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select w from Wallet w where w.customerId = :customerId")
-    Optional<Wallet> findByIdForUpdate(@Param("customerId") String customerId);
+    // Take money only if enough is left. Returns 1 = done, 0 = not enough.
+    @Modifying(clearAutomatically = true)
+    @Query("update Wallet w set w.balance = w.balance - :amount " +
+           "where w.customerId = :customerId and w.balance >= :amount")
+    int charge(@Param("customerId") String customerId, @Param("amount") BigDecimal amount);
 }

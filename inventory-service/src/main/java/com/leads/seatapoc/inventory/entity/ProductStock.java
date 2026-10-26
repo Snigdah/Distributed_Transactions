@@ -7,7 +7,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-// How many items of a product we have
+import java.math.BigDecimal;
+
 @Entity
 @Table(name = "product_stock")
 @Getter
@@ -17,6 +18,8 @@ public class ProductStock {
 
     @Id
     private String productId;
+
+    private BigDecimal price;
 
     private int quantity;
 }

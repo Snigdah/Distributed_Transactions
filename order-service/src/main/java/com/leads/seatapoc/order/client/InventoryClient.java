@@ -1,14 +1,15 @@
 package com.leads.seatapoc.order.client;
 
 import com.leads.seatapoc.order.dto.DeductStockRequest;
+import com.leads.seatapoc.order.dto.ProductResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
-// Finds "inventory-service" in Eureka. No hardcoded URL.
+// "inventory-service" is found through Eureka, no hardcoded URL
 @FeignClient(name = "inventory-service")
 public interface InventoryClient {
 
     @PostMapping("/api/inventory/deduct")
-    void deductStock(@RequestBody DeductStockRequest request);
+    ProductResponse deduct(@RequestBody DeductStockRequest request);
 }

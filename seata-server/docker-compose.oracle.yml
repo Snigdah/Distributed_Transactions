@@ -1,0 +1,24 @@
+# Apache Seata server - DB mode with Oracle (runs on 192.168.10.56)
+# Seata keeps its own tables in a SEPARATE schema: seata_db. Not in the business schemas.
+#
+# Start: docker compose -f docker-compose.oracle.yml up -d
+services:
+  seata-server:
+    image: apache/seata-server:2.6.0.jdk25
+    container_name: seata-server-poc
+    restart: unless-stopped
+    ports:
+      - "18091:8091"   # services connect to 192.168.10.56:18091
+    environment:
+      SEATA_STORE_MODE: db
+      SEATA_STORE_SESSION_MODE: db
+      SEATA_STORE_LOCK_MODE: db
+      SEATA_STORE_DB_DATASOURCE: hikari
+      SEATA_STORE_DB_DBTYPE: oracle
+      SEATA_STORE_DB_DRIVERCLASSNAME: oracle.jdbc.OracleDriver
+      SEATA_STORE_DB_URL: jdbc:oracle:thin:@//<ORACLE_HOST>:1521/<SERVICE_NAME>
+      SEATA_STORE_DB_USER: seata_db
+      SEATA_STORE_DB_PASSWORD: <password>
+    # Only if the image has no Oracle driver: put ojdbc11.jar in ./libs and uncomment
+    # volumes:
+    #   - ./libs/ojdbc11.jar:/seata-server/libs/ojdbc11.jar

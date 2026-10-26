@@ -1,6 +1,5 @@
 package com.leads.seatapoc.order.entity;
 
-import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -11,9 +10,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
-// One order. Not called "Order" because ORDER is a reserved SQL word.
+// Not named "Order" because ORDER is a reserved SQL word
 @Entity
 @Table(name = "orders")
 @Getter
@@ -22,12 +20,8 @@ import java.time.LocalDateTime;
 public class CustomerOrder {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)   // same in PostgreSQL and Oracle
     private Long id;
-
-    // Same key twice = same order (unique in DB)
-    @Column(unique = true)
-    private String idempotencyKey;
 
     private String customerId;
 
@@ -37,10 +31,5 @@ public class CustomerOrder {
 
     private BigDecimal amount;
 
-    private String status;          // PENDING / CONFIRMED / CANCELLED
-
-    @Column(length = 2000)
-    private String failureReason;   // why it was cancelled
-
-    private LocalDateTime createdAt = LocalDateTime.now();
+    private String status;   // PENDING -> CONFIRMED
 }
