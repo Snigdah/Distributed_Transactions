@@ -1,0 +1,12 @@
+# Apache Seata server - DB mode with PostgreSQL (runs on 192.168.10.56)
+# Seata keeps its own tables (global_table, branch_table, lock_table, distributed_lock)
+# in a SEPARATE database: seata_db. Not in the business databases.
+#
+# Start: docker compose up -d
+services:
+  seata-server:
+    image: apache/seata-server:2.6.0.jdk25
+    container_name: seata-server-poc
+    restart: unless-stopped
+    ports:
+      - "8091:8091"   
